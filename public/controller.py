@@ -3,8 +3,6 @@
 import socketserver
 import socket
 import os
-import traceback
-import time
 import sys
 
 hostname = os.popen("hostname").read()[:-1]
@@ -16,7 +14,7 @@ class MyHandler(socketserver.BaseRequestHandler):
             bytes(
                 "HTTP/1.1 200 OK\n\n"
                 f"Access-Control-Allow-Origin: http://{self.ip}\r\n"
-                "Access-Control-Allow-Methods: PUT, OPTIONS\r\n"
+                "Access-Control-Allow-Methods: GET, PUT, OPTIONS\r\n"
                 "Access-Control-Allow-Headers: Content-Type\r\n"
                 "Content-Type: text/plain\r\n"
                 '<html><head><meta http-equiv="refresh" content="0; url=http://'
@@ -72,8 +70,8 @@ class MyHandler(socketserver.BaseRequestHandler):
             print("Asked to put...")
             if "config.yaml" in data[0]:
                 self.send_continue()
-                os.chdir("/home/pi/airiana/public")
-                with open(os.getcwd()+"/config.yaml", "w") as file:
+                os.chdir("/home/pi/Airiana/public")
+                with open(os.getcwd() + "/config.yaml", "w") as file:
                     print(f"Writing to {file.name}")
                     file.write(data[-1])
                 self.send_options()
@@ -119,8 +117,9 @@ psk={password}
                     f"echo '{network_conf}'"
                     "| sudo tee /etc/NetworkManager/system-connections/preconfigured.nmconnection"
                     " > /dev/null"
+                    " && sudo chmod 600 /etc/NetworkManager/system-connections/preconfigured.nmconnection"
                 )
-                os.chdir("/home/pi/airiana/public/")
+                os.chdir("/home/pi/Airiana/public/")
                 self.send_home()
                 os.system(
                     'echo "<br>Rebooting system due to updated WiFi configuration, please wait...<br>" >> out.txt'
@@ -139,7 +138,7 @@ psk={password}
 
             if "utility" in data[0]:
                 print(data[0])
-                os.chdir("/home/pi/airiana/")
+                os.chdir("/home/pi/Airiana/")
                 if "shutdown" in data[0]:
                     self.send_ok()
                     os.system("sudo shutdown")
@@ -169,22 +168,12 @@ psk={password}
                         )
                     )
                     return 0
-                os.chdir("/home/pi/airiana/public/")
+                os.chdir("/home/pi/Airiana/public/")
 
 
 socketserver.TCPServer.allow_reuse_address = True
 
-while True:
-    try:
-        srv = socketserver.TCPServer(("0.0.0.0", 8000), MyHandler)
-        srv.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        print()
-        break
-    except KeyboardInterrupt:
-        exit()
-    except IOError:
-        print("error binding to socket")
-        traceback.print_exc()
-        os.system("sleep 1")
+srv = socketserver.TCPServer(("0.0.0.0", 8000), MyHandler)
+srv.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
 srv.serve_forever()

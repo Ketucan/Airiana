@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 import os
 import sys
 import time
@@ -35,7 +35,7 @@ def init():
 
 init()
 
-os.chdir("/home/pi/airiana")
+os.chdir("/home/pi/Airiana")
 os.system("./alive_logger.py > /dev/null &")
 files = os.listdir("./public/local_links/")
 data = dict(
@@ -73,24 +73,24 @@ location = dict()
 
 def checkLocation(user):
     try:
-        # print location
+        print(f"CheckLocation for {user}")
         if len(location[user]) != 0:
-            # print "user known",user, location[user]
+
             return None
     except KeyError:
-        if user.count("_") > 0:
-            with open("./public/local_links/" + user + ".html") as log:
+        if user.count(":") > 0:
+            with open(
+                "./public/local_links/" + user.replace("_", ":") + ".html"
+            ) as log:
                 ip = log.read().split("Source:('")[-1].split("'")[0]
                 if ip.count(".") == 3:
                     print("checking ip:", ip)
                     loc = os.popen("./geoloc.py " + ip + " 2>/dev/null").read()
                     location.update({user: loc})
-                    # print "got new location", loc
+                    print("got new location", loc)
 
 
 def analyse_stat(status, user):
-    # if "debug" in sys.argv:
-    # print "Analyze", status, users[user]
     # Store Warnings in the stat_dict as {"user-MAC":{"alarmType":INT}}
     # check if winter mode is on and exhaust is higher than supply
     if len(status) > 1:
@@ -159,12 +159,8 @@ while True:
                         stat_field = line
                         break
                 content = stat_field.replace("nan", " -1 ")
-                # print content
                 user = str(each.split(".")[0])
                 checkLocation(user)
-                # try: print "userID",user,"location:", location[user]
-                # except:
-                # 	print "\n"
                 lis = []
                 try:
                     if content.find("status") != -1:

@@ -12,6 +12,7 @@ def is_connected(host="8.8.8.8", port=53, timeout=3):
     except socket.error:
         return False
 
+
 if not is_connected():
     print("Exit, no internet connection.")
     exit(-1)
@@ -25,41 +26,22 @@ if ip.count(".") != 3:
         print(ip)
         exit(0)
 # try to read a location
-location = os.popen("curl http://www.geoplugin.net/json.gp?ip=" + ip)
+# Try another api if the first test fails
 try:
-    loc = eval(location.read())
-    print(loc["geoplugin_city"], ",", loc["geoplugin_countryName"])
+    location = os.popen(" curl http://ip-api.com/json/" + ip).read()
+    loc = eval(location)
+    print(loc["city"], ",", loc["country"])
     if "debug" in sys.argv:
         print(loc)
     # test for location file and create if not availible
     if not os.path.lexists("./latlong.json"):
-        pos = (
-            '{"lat":'
-            + loc["geoplugin_latitude"]
-            + ',"long":'
-            + loc["geoplugin_longitude"]
-            + "}"
-        )
+        pos = '{"lat":"' + str(loc["lat"]) + '","long":"' + str(loc["lon"]) + '"}'
         # print pos
         with open("latlong.json", "w") as f:
             f.write(pos)
 except NameError:
-    # Try another api if the first test fails
-    try:
-        location = os.popen(" curl http://ip-api.com/json/" + ip).read()
-        loc = eval(location)
-        print(loc["city"], ",", loc["country"])
-        if "debug" in sys.argv:
-            print(loc)
-        # test for location file and create if not availible
-        if not os.path.lexists("./latlong.json"):
-            pos = '{"lat":"' + str(loc["lat"]) + '","long":"' + str(loc["lon"]) + '"}'
-            # print pos
-            with open("latlong.json", "w") as f:
-                f.write(pos)
-    except NameError:
-        print("unknown")
-        if "debug" in sys.argv:
-            print(loc)
-    except KeyError:
-        print("unknown")
+    print("unknown")
+    if "debug" in sys.argv:
+        print(loc)
+except KeyError:
+    print("unknown")

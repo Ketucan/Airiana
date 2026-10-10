@@ -5,13 +5,15 @@
 #                                                               #
 #################################################################
 import os
+import pwd
+import shlex
 import sys
 import subprocess
 import venv
 import time
 
 path = os.getcwd()
-user_name = os.getlogin()
+user_name = pwd.getpwuid(os.getuid()).pw_name
 user_id = os.getuid()
 group_id = os.getgid()
 
@@ -34,10 +36,10 @@ def run_command(command, check=True):
 def setUart():
     print("Checking UART settings...")
     boot_cmd = "enable_uart=1\n"
-    if (os.path.isfile("/boot/firmware/config.txt")):
-         file = "/boot/firmware/config.txt"
+    if os.path.isfile("/boot/firmware/config.txt"):
+        file = "/boot/firmware/config.txt"
     else:
-         file = "/boot/config.txt"
+        file = "/boot/config.txt"
     with open(file, "r+") as boot_file:
         lines = boot_file.readlines()
         if boot_cmd in lines:
@@ -77,6 +79,7 @@ def install_deps(venv_path):
         "iptables",
         "libopenblas-dev",
         "python3-numpy",
+        "wireless-tools",
     ]
     run_command(f"sudo {apt_executable} update")
     run_command(f"sudo {apt_executable} -y install " + " ".join(apt_deps))
@@ -118,7 +121,7 @@ def add_dnsmasq_conf():
 def add_dhcpcd_conf():
     print("Adding dhcpcd configuration...")
     conf = "nohook wpa_supplicant\n"
-    if not os.path.isfile("/etc/dhcp.conf"):
+    if not os.path.isfile("/etc/dhcpd.conf"):
         run_command("sudo touch /etc/dhcpcd.conf")
         run_command("sudo chmod 666 /etc/dhcpcd.conf")
     with open("/etc/dhcpcd.conf", "r+") as dhcpcd:
@@ -135,10 +138,19 @@ def add_dhcpcd_conf():
 
 def add_sudoer_conf():
     print("Adding sudoers configuration...")
-    conf = "pi ALL= NOPASSWD: /home/pi/Airiana/systemfiles/autohotspot.sh\n"
+    conf = f"{user_name} ALL= NOPASSWD: {path}/systemfiles/autohotspot.sh\n"
     with os.popen("sudo cat /etc/sudoers") as sudoers:
         if conf not in sudoers.read():
             run_command(f'sudo echo "{conf}" | sudo tee -a /etc/sudoers')
+
+
+def add_iwlist_sudoer():
+    print("Allowing the Airiana service to scan WiFi...")
+    sudoer_file = "/etc/sudoers.d/airiana-iwlist"
+    conf = f"{user_name} ALL=(root) NOPASSWD: /usr/sbin/iwlist\n"
+    run_command(f'printf "%s" "{conf}" | sudo tee {sudoer_file} > /dev/null')
+    run_command(f"sudo chmod 440 {sudoer_file}")
+    run_command(f"sudo visudo -cf {sudoer_file}")
 
 
 def set_fstab():
@@ -182,7 +194,7 @@ def clean_paths():
         "public/ip-util.sh",
     ]
     for file in files_to_clean:
-        run_command(f"sed -i 's-/home/pi/airiana/-{path}/-g' {file}")
+        run_command(f"sed -i -E 's-/home/[^/]+/[Aa]iriana/-{path}/-g' {file}")
 
 
 def redirect_console(boot_cmd):
@@ -192,19 +204,29 @@ def redirect_console(boot_cmd):
 
 def setup_services():
     print("Setting up services for autostart...")
-    services = ["airiana.service", "controller.service"]
+    services = ["airiana.service", "controller.service", "airiana-http.service"]
     for service in services:
-        if not os.path.lexists(f"/etc/systemd/system/{service}"):
-            run_command(f"sudo cp ./systemfiles/{service} /etc/systemd/system/")
+        service_path = f"/etc/systemd/system/{service}"
+        if not os.path.lexists(service_path):
+            with open(f"./systemfiles/{service}") as service_file:
+                service_config = (
+                    service_file.read()
+                    .replace("@INSTALL_DIR@", path)
+                    .replace("@USER@", user_name)
+                )
+            run_command(
+                f"printf '%s' {shlex.quote(service_config)} "
+                f"| sudo tee {service_path} > /dev/null"
+            )
             run_command(f"sudo systemctl enable {service}")
 
 
 def setup_crontab(option):
     print("Setting up crontab entries...")
     cron = subprocess.run(
-        ["crontab", "-u", "pi", "-l"], capture_output=True, text=True
+        ["crontab", "-u", user_name, "-l"], capture_output=True, text=True
     ).stdout
-    if "no crontab for user pi" in cron:
+    if f"no crontab for user {user_name}" in cron:
         cron = ""
     crontab = ""
     updater_updated = False
@@ -215,18 +237,22 @@ def setup_crontab(option):
             line = f"0 */4 * * * /usr/bin/python {path}/updater.py\n"
             updater_updated = True
         if "autohotspot.sh" in line:
-            line = f"*/5 * * * * sudo /home/pi/Airiana/systemfiles/autohotspot.sh\n"
+            line = (
+                f"*/5 * * * * sudo {path}/systemfiles/autohotspot.sh >/dev/null 2>&1\n"
+            )
             hotspot_updated = True
         crontab += line + "\n"
     if not updater_updated and option == "crontab":
         crontab += f"0 */4 * * * /usr/bin/python {path}/updater.py\n"
     if (
         not hotspot_updated
-        and osname in ("buster", "bullseye", "bookworm")
+        and osname in ("buster", "bullseye", "bookworm", "trixie")
         and option == "hotspot"
     ):
-        crontab += f"*/5 * * * * sudo /home/pi/Airiana/systemfiles/autohotspot.sh\n"
-    run_command(f'echo "{crontab.strip()}" | crontab -u pi -')
+        crontab += (
+            f"*/5 * * * * sudo {path}/systemfiles/autohotspot.sh >/dev/null 2>&1\n"
+        )
+    run_command(f'echo "{crontab.strip()}" | crontab -u {user_name} -')
 
 
 def setup_autohotspot():
@@ -238,8 +264,11 @@ def setup_autohotspot():
         add_dhcpcd_conf()
         add_sudoer_conf()
         if not os.path.lexists("/etc/systemd/system/autohotspot.service"):
+            with open("./systemfiles/autohotspot.service") as service_file:
+                service_config = service_file.read().replace("@INSTALL_DIR@", path)
             run_command(
-                "sudo cp ./systemfiles/autohotspot.service /etc/systemd/system/"
+                f"printf '%s' {shlex.quote(service_config)} "
+                "| sudo tee /etc/systemd/system/autohotspot.service > /dev/null"
             )
             run_command("sudo systemctl enable autohotspot.service")
     except IndexError as e:
@@ -292,7 +321,7 @@ def main():
         setup_crontab("updater")
 
     # setup wifi hotsput, only if bookworm
-    if user_id != 0 and osname in ("bookworm") and not headless:
+    if user_id != 0 and osname in ("bookworm", "trixie") and not headless:
         if (
             input(
                 "\nDo you want to setup, automatic WiFi access point, if network is lost? [y/n]"
@@ -311,6 +340,7 @@ def execute_sudo_parts():
     set_fstab()
     setUart()
     add_dhcpcd_conf()
+    add_iwlist_sudoer()
     with open("/boot/cmdline.txt", "r") as cmdline:
         if boot_cmd not in cmdline.read():
             print("Updating cmdline.txt")
@@ -318,6 +348,8 @@ def execute_sudo_parts():
             redirect_console(boot_cmd)
         else:
             print("cmdline.txt has full command")
+        # Enable python interpreter to bind low ports for http server
+        os.system(f"setcap 'cap_net_bind_service=+ep' {path}/venv/bin/python")
 
 
 if __name__ == "__main__":
@@ -326,7 +358,8 @@ if __name__ == "__main__":
     if "headless" in sys.argv:
         headless = True
     if "user" in sys.argv:
-        user_id = sys.argv[sys.argv.index("user") + 1]
+        user_name = sys.argv[sys.argv.index("user") + 1]
+        user_id = pwd.getpwnam(user_name).pw_uid
     if "group" in sys.argv:
         group_id = sys.argv[sys.argv.index("group") + 1]
     if "sudo-parts" in sys.argv:
@@ -341,4 +374,6 @@ if __name__ == "__main__":
     else:
         main()
         print("will execute some parts as root for access...")
-        os.system(f"sudo python3 install.py sudo-parts user {user_id} group {group_id}")
+        os.system(
+            f"sudo python3 install.py sudo-parts user {user_name} group {group_id}"
+        )

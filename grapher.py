@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 import traceback
 import time as tm
 import os
@@ -9,7 +9,7 @@ from pylab import *
 matplotlib.use("Agg")
 
 ioff()
-warnings.filterwarnings("ignore", module="matplotlib\..*")  # noqa
+warnings.filterwarnings("ignore", module=r"matplotlib\..*")  # noqa
 
 if len(sys.argv) >= 2:
     try:
@@ -209,7 +209,7 @@ if "debug" in sys.argv or "hasRH" in sys.argv:
     )
 
 # add subplot 213 moisture to figure
-if "moisture" in sys.argv:
+if "moisture" in sys.argv or "debug" in sys.argv:
     s3 = subplot(312)
     grid(True)
     s3.set_title("Moistures (Pa)")
